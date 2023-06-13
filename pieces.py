@@ -16,6 +16,7 @@
 # limitations under the License.
 
 from pieces.cli import main
+import asyncio
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())

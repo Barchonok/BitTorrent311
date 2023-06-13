@@ -17,6 +17,7 @@
 
 import argparse
 import asyncio
+import os
 import signal
 import logging
 
@@ -24,9 +25,10 @@ from concurrent.futures import CancelledError
 
 from pieces.torrent import Torrent
 from pieces.client import TorrentClient
+from pieces.tracker import Tracker
 
 
-def main():
+async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('torrent',
                         help='the .torrent to download')
@@ -49,6 +51,6 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
 
     try:
-        loop.run_until_complete(task)
+        await task
     except CancelledError:
         logging.warning('Event loop was canceled')

@@ -84,7 +84,7 @@ class PeerConnection:
         self.reader = None
         self.piece_manager = piece_manager
         self.on_block_cb = on_block_cb
-        self.future = asyncio.ensure_future(self._start())  # Start this worker
+        self.download_task = asyncio.create_task(self._start())  # Start this worker
 
     async def _start(self):
         while 'stopped' not in self.my_state:
@@ -174,8 +174,8 @@ class PeerConnection:
         Sends the cancel message to the remote peer and closes the connection.
         """
         logging.info('Closing peer {id}'.format(id=self.remote_id))
-        if not self.future.done():
-            self.future.cancel()
+        if not self.download_task.done():
+            self.download_task.cancel()
         if self.writer:
             self.writer.close()
 
@@ -190,8 +190,8 @@ class PeerConnection:
         # The rest of the cleanup will eventually be managed by loop calling
         # `cancel`.
         self.my_state.append('stopped')
-        if not self.future.done():
-            self.future.cancel()
+        if not self.download_task.done():
+            self.download_task.cancel()
 
     async def _request_piece(self):
         block = self.piece_manager.next_request(self.remote_id)
@@ -254,13 +254,13 @@ class PeerStreamIterator:
     If the connection is dropped, something fails the iterator will abort by
     raising the `StopAsyncIteration` error ending the calling iteration.
     """
-    CHUNK_SIZE = 10*1024
+    CHUNK_SIZE = 16*1024
 
     def __init__(self, reader, initial: bytes=None):
         self.reader = reader
         self.buffer = initial if initial else b''
 
-    async def __aiter__(self):
+    def __aiter__(self):
         return self
 
     async def __anext__(self):
