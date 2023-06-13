@@ -39,9 +39,8 @@ async def main():
     if args.verbose:
         logging.basicConfig(level=logging.INFO)
 
-    loop = asyncio.get_event_loop()
     client = TorrentClient(Torrent(args.torrent))
-    task = loop.create_task(client.start())
+    task = asyncio.create_task(client.start())
 
     def signal_handler(*_):
         logging.info('Exiting, please wait until everything is shutdown...')
