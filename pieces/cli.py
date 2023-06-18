@@ -20,16 +20,29 @@ import asyncio
 import os
 import signal
 import logging
+from asyncio import Queue
 
 from concurrent.futures import CancelledError
 
+from pieces.protocol import PeerConnection
 from pieces.torrent import Torrent
-from pieces.client import TorrentClient
+from pieces.client import TorrentClient, PieceManager
 from pieces.tracker import Tracker
 
 
+"""
+Piece - походу это фрагмент, который отдают (ибо пошла загрузка)
+Да, получен фрагмент, и мы берем новый
+При have фиксировать фрагмент - уже есть в PieceManager (self.peers)
+
+3.1Покопаться в PieceManager
+4.Стратегия (часть методов уже есть, в частности rarest)
+4.1 сохраняются ли данные в физ. память при загрузке торрента?
+
+*blacklist пиров
+"""
 async def main():
-    parser = argparse.ArgumentParser()
+    """parser = argparse.ArgumentParser()
     parser.add_argument('torrent',
                         help='the .torrent to download')
     parser.add_argument('-v', '--verbose', action='store_true',
@@ -37,11 +50,19 @@ async def main():
 
     args = parser.parse_args()
     if args.verbose:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.INFO)"""
+    logging.basicConfig(level=logging.INFO)
+    #client = TorrentClient(Torrent(args.torrent))
 
-    loop = asyncio.get_event_loop()
-    client = TorrentClient(Torrent(args.torrent))
-    task = loop.create_task(client.start())
+    client = TorrentClient(Torrent('../Mytests/FB.torrent'))
+    task = await asyncio.create_task(client.start())
+
+    #await Tracker(Torrent('../Mytests/FB.torrent')).connect()
+    #await Tracker(Torrent('../Mytests/FB.torrent')).connect()
+    #client = TorrentClient(Torrent('../Mytests/FB.torrent'))
+    #task = asyncio.create_task(client.start())
+    """client = TorrentClient(Torrent('../Mytests/FB.torrent'))
+    task = asyncio.create_task(client.start())
 
     def signal_handler(*_):
         logging.info('Exiting, please wait until everything is shutdown...')
@@ -53,4 +74,4 @@ async def main():
     try:
         await task
     except CancelledError:
-        logging.warning('Event loop was canceled')
+        logging.warning('Event loop was canceled')"""

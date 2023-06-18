@@ -31,6 +31,11 @@ from pieces.tracker import Tracker
 MAX_PEER_CONNECTIONS = 40
 
 
+minute = 300 * 1000 #5
+
+interv = 30 * 60
+
+
 class TorrentClient:
     """
     The torrent client is the local peer that holds peer-to-peer
@@ -74,11 +79,11 @@ class TorrentClient:
                                      self.piece_manager,
                                      self._on_block_retrieved)
                       for _ in range(MAX_PEER_CONNECTIONS)]
-
+        #print(asyncio.all_tasks())
         # The time we last made an announce call (timestamp)
         previous = None
         # Default interval between announce calls (in seconds)
-        interval = 30*60
+        interval = interv
 
         while True:
             if self.piece_manager.complete:
@@ -101,13 +106,38 @@ class TorrentClient:
                     self._empty_queue()
                     for peer in response.peers:
                         self.available_peers.put_nowait(peer)
+                    self._check_peers()
             else:
-                await asyncio.sleep(5)
+                self._check_peers()
+                await asyncio.sleep(2)
+
+
         self.stop()
 
     def _empty_queue(self):
         while not self.available_peers.empty():
             self.available_peers.get_nowait()
+
+    # TODO add into blacklist bad peers
+    def _check_peers(self):
+        """
+        Check peers statuses, to filter them. If peer is finished, delete and create new
+
+        """
+        for id, peer in enumerate(p for p in self.peers if p.get_status()[0] != p.statuses['working']):
+            del self.peers[id]
+
+        self._add_peers()
+
+    def _add_peers(self):
+        add_peers_count = MAX_PEER_CONNECTIONS - len(self.peers)
+        for i in range(add_peers_count):
+            if not self.available_peers.empty():
+                self.peers.append(PeerConnection(self.available_peers,
+                                         self.tracker.torrent.info_hash,
+                                         self.tracker.peer_id,
+                                         self.piece_manager,
+                                         self._on_block_retrieved))
 
     def stop(self):
         """
@@ -209,7 +239,7 @@ class Piece:
         :return: True or False
         """
         blocks = [b for b in self.blocks if b.status is not Block.Retrieved]
-        return len(blocks) is 0
+        return len(blocks) == 0
 
     def is_hash_matching(self):
         """
@@ -253,7 +283,7 @@ class PieceManager:
         self.missing_pieces = []
         self.ongoing_pieces = []
         self.have_pieces = []
-        self.max_pending_time = 300 * 1000  # 5 minutes
+        self.max_pending_time = minute  # 5 minutes
         self.missing_pieces = self._initiate_pieces()
         self.total_pieces = len(torrent.pieces)
         self.fd = os.open(self.torrent.output_file,  os.O_RDWR | os.O_CREAT)

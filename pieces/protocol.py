@@ -58,6 +58,19 @@ class PeerConnection:
     the next available peer from off the queue and try to connect to that one
     instead.
     """
+
+    statuses = {
+        'working': 0,
+        'PE': 1,
+        'UC': 2,
+        'CC': 3,
+        'OSE': 4,
+        'EC': 5,
+        'finished': 6
+
+    }
+
+
     def __init__(self, queue: Queue, info_hash,
                  peer_id, piece_manager, on_block_cb=None):
         """
@@ -85,18 +98,21 @@ class PeerConnection:
         self.piece_manager = piece_manager
         self.on_block_cb = on_block_cb
         self.download_task = asyncio.create_task(self._start())  # Start this worker
+        self.working_status = self.statuses['working']
+        self.ip = None
+        self.port = None
 
     async def _start(self):
         while 'stopped' not in self.my_state:
-            ip, port = await self.queue.get()
-            logging.info('Got assigned peer with: {ip}'.format(ip=ip))
+            self.ip, self.port = await self.queue.get()
+            logging.info('Got assigned peer with: {ip}'.format(ip=self.ip))
 
             try:
                 # TODO For some reason it does not seem to work to open a new
                 # connection if the first one drops (i.e. second loop).
                 self.reader, self.writer = await asyncio.open_connection(
-                    ip, port)
-                logging.info('Connection open to peer: {ip}'.format(ip=ip))
+                    self.ip, self.port)
+                logging.info('Connection open to peer: {ip}'.format(ip=self.ip))
 
                 # It's our responsibility to initiate the handshake.
                 buffer = await self._handshake()
@@ -116,6 +132,7 @@ class PeerConnection:
                 # Start reading responses as a stream of messages for as
                 # long as the connection is open and data is transmitted
                 async for message in PeerStreamIterator(self.reader, buffer):
+                    print(message, type(message), self.peer_id, self.ip, self.port)
                     if 'stopped' in self.my_state:
                         break
                     if type(message) is BitField:
@@ -132,6 +149,7 @@ class PeerConnection:
                         if 'choked' in self.my_state:
                             self.my_state.remove('choked')
                     elif type(message) is Have:
+                        print(message.index)
                         self.piece_manager.update_peer(self.remote_id,
                                                        message.index)
                     elif type(message) is KeepAlive:
@@ -157,17 +175,28 @@ class PeerConnection:
                                 self.my_state.append('pending_request')
                                 await self._request_piece()
 
+            #add status info to filter peers
             except ProtocolError as e:
                 logging.exception('Protocol error')
+                self._set_status('PE')
             except (ConnectionRefusedError, TimeoutError):
                 logging.warning('Unable to connect to peer')
+                self._set_status('UC')
             except (ConnectionResetError, CancelledError):
                 logging.warning('Connection closed')
+                self._set_status('CC')
+            except OSError:
+                logging.exception('OSError. Semaphore')
+                self._set_status('OSE')
             except Exception as e:
                 logging.exception('An error occurred')
+                self._set_status('EC')
                 self.cancel()
                 raise e
+            self._set_status('EC')
             self.cancel()
+
+
 
     def cancel(self):
         """
@@ -178,8 +207,14 @@ class PeerConnection:
             self.download_task.cancel()
         if self.writer:
             self.writer.close()
-
+        self.working_status = self.statuses['finished']
         self.queue.task_done()
+
+    def get_status(self):
+        """
+        Return info about working status and peer information, to add peer into blacklist
+        """
+        return self.working_status, self.ip, self.port
 
     def stop(self):
         """
@@ -192,6 +227,9 @@ class PeerConnection:
         self.my_state.append('stopped')
         if not self.download_task.done():
             self.download_task.cancel()
+
+    def _set_status(self, status):
+        self.working_status = self.statuses[status]
 
     async def _request_piece(self):
         block = self.piece_manager.next_request(self.remote_id)
@@ -232,7 +270,6 @@ class PeerConnection:
         # from the peer match the peer_id received from the tracker.
         self.remote_id = response.peer_id
         logging.info('Handshake with peer was successful')
-
         # We need to return the remaining buffer data, since we might have
         # read more bytes then the size of the handshake message and we need
         # those bytes to parse the next message.
